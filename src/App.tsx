@@ -22,7 +22,7 @@ import {
   Trash2,
   UserPlus
 } from 'lucide-react';
-import html2canvas from 'html2canvas';
+import * as htmlToImage from 'html-to-image';
 import { jsPDF } from 'jspdf';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -46,10 +46,23 @@ export default function App() {
   const reportRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const today = new Date();
-    const weekNumber = getWeekNumber(today);
-    const year = today.getFullYear();
-    fetchInitialData(year, weekNumber);
+    const params = new URLSearchParams(window.location.search);
+    const urlYear = params.get('year');
+    const urlWeek = params.get('weekNumber');
+    const isPrint = params.get('print') === 'true';
+
+    if (urlYear && urlWeek) {
+      fetchInitialData(parseInt(urlYear), parseInt(urlWeek));
+    } else {
+      const today = new Date();
+      const weekNumber = getWeekNumber(today);
+      const year = today.getFullYear();
+      fetchInitialData(year, weekNumber);
+    }
+
+    if (isPrint) {
+      setActiveTab('print'); // Special internal tab for printing
+    }
   }, []);
 
   const handlePrevWeek = () => {
@@ -74,42 +87,44 @@ export default function App() {
     fetchWeekData(newYear, newWeek);
   };
 
+  const handleCurrentWeek = () => {
+    const today = new Date();
+    const weekNumber = getWeekNumber(today);
+    const year = today.getFullYear();
+    fetchWeekData(year, weekNumber);
+  };
+
   const handleExport = async () => {
-    if (!reportRef.current) return;
+    if (!currentWeek) return;
     setExporting(true);
     
-    // Give time for modal animations to complete and UI to settle
-    await new Promise(resolve => setTimeout(resolve, 500));
-
     try {
-      const element = reportRef.current;
-      const canvas = await html2canvas(element, {
-        scale: 2,
-        useCORS: true,
-        logging: true, // Enable for debugging initially
-        backgroundColor: '#F8FAFC', // Match slate-50 background
-        windowWidth: element.scrollWidth,
-        windowHeight: element.scrollHeight,
-        onclone: (clonedDoc) => {
-          const clonedElement = clonedDoc.getElementById('report-container');
-          if (clonedElement) {
-            clonedElement.style.overflow = 'visible';
-            clonedElement.style.height = 'auto';
-          }
-        }
+      const url = `${window.location.origin}?year=${currentWeek.year}&weekNumber=${currentWeek.week_number}&print=true`;
+      const filename = `Workload_Full_Report_W${currentWeek.week_number}_${currentWeek.year}.pdf`;
+
+      const response = await fetch('/api/pdf/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, filename })
       });
+
+      if (!response.ok) throw new Error('Failed to generate PDF');
+
+      const blob = await response.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
       
-      const imgData = canvas.toDataURL('image/png');
-      const pdf = new jsPDF('l', 'mm', 'a4');
-      const imgProps = pdf.getImageProperties(imgData);
-      const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+      // Cleanup with delay to support Chrome
+      setTimeout(() => {
+        link.parentNode?.removeChild(link);
+        window.URL.revokeObjectURL(downloadUrl);
+      }, 60000);
       
-      // If height is more than A4, we might want multiple pages, 
-      // but for a dashboard typically we fit to one page or split.
-      // Scaling to width is usually preferred for dashboards.
-      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight, undefined, 'FAST');
-      pdf.save(`Aumovio_Effort_Report_W${currentWeek?.week_number}.pdf`);
+      setIsExportModalOpen(false);
     } catch (err) {
       console.error('Export failed:', err);
       alert('Export failed. Please try again.');
@@ -182,6 +197,7 @@ export default function App() {
         year={currentWeek.year} 
         onPrevWeek={handlePrevWeek} 
         onNextWeek={handleNextWeek}
+        onCurrentWeek={handleCurrentWeek}
         onExport={() => setIsExportModalOpen(true)}
       />
 
@@ -237,7 +253,7 @@ export default function App() {
 
         {/* Dashboard View */}
         <AnimatePresence mode="wait">
-          {activeTab === 'dashboard' && (
+          {(activeTab === 'dashboard' || activeTab === 'print') && (
             <motion.div 
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
@@ -301,7 +317,9 @@ export default function App() {
             </motion.div>
           )}
 
-          {activeTab === 'analytics' && (
+          {activeTab === 'print' && <div className="hidden print:block my-20" style={{ pageBreakAfter: 'always', breakAfter: 'page' }} />}
+
+          {(activeTab === 'analytics' || activeTab === 'print') && (
             <motion.div 
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}

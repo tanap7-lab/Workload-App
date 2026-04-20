@@ -1,4 +1,5 @@
 import express from 'express';
+import { chromium } from 'playwright';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -17,7 +18,54 @@ async function startServer() {
   app.use(express.json());
 
   // API Routes
-  
+  app.post('/api/pdf/export', async (req, res) => {
+    const { url, filename } = req.body;
+    console.log(`Generating PDF for: ${url}`);
+
+    const browser = await chromium.launch({ headless: true });
+    try {
+      console.log('  - Opening new page...');
+      const page = await browser.newPage();
+      await page.setViewportSize({ width: 1280, height: 800 });
+      
+      console.log(`  - Navigating to: ${url}...`);
+      await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
+
+      console.log('  - Injecting print styles...');
+      await page.addStyleTag({
+        content: `
+          aside, header, #export-modal-root { display: none !important; }
+          main { padding: 0 !important; margin: 0 !important; }
+          #report-container { padding: 20px !important; }
+          body { background: white !important; }
+        `
+      });
+
+      console.log('  - Waiting for charts and animations to settle (3s)...');
+      await new Promise(resolve => setTimeout(resolve, 3000));
+
+      console.log('  - Generating PDF buffer...');
+      const pdfBuffer = await page.pdf({
+        format: 'A4',
+        landscape: true,
+        printBackground: true,
+        margin: { top: '10mm', right: '10mm', bottom: '10mm', left: '10mm' }
+      });
+
+      console.log('  - Sending PDF to client...');
+      res.contentType('application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename=${filename || 'report.pdf'}`);
+      res.send(pdfBuffer);
+      console.log('  ✅ PDF Export Complete');
+    } catch (error) {
+      console.error('  ❌ PDF Generation Error:', error);
+      res.status(500).json({ error: 'Failed to generate PDF' });
+    } finally {
+      console.log('  - Closing browser');
+      await browser.close();
+    }
+  });
+
   // Get all team members
   app.get('/api/team-members', (req, res) => {
     const members = db.prepare('SELECT * FROM team_members WHERE is_active = 1').all();
