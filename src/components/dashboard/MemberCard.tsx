@@ -122,7 +122,7 @@ export const MemberCard = ({ member, tasks, weekId }: MemberCardProps) => {
   const isComplete = tasks.length >= 5 && totalHours >= (weeklyCapacity * 0.875); // Roughly 35/40
 
   return (
-    <Card className="bento-card flex flex-col h-full overflow-hidden">
+    <Card className="bento-card flex flex-col h-full overflow-hidden pdf-page-section">
       <div className="p-4 border-b border-slate-100 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div 

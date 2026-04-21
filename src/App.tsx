@@ -210,7 +210,7 @@ export default function App() {
 
       <div id="report-container" className="flex-1 overflow-y-auto p-6 space-y-6" ref={reportRef}>
         {/* Analytics Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pdf-page-section">
           <Card className="bento-card p-6 flex items-center gap-6">
             <div className="w-12 h-12 bg-orange-50 rounded-xl flex items-center justify-center">
               <Users className="text-[#FF4208]" size={24} />
@@ -272,7 +272,7 @@ export default function App() {
               </div>
 
               {/* Effort Distribution Bento Footer */}
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 pt-4 border-t border-border-custom">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 pt-4 border-t border-border-custom pdf-page-section">
                 {members.map(member => {
                   const memberTasks = tasks.filter(t => t.member_id === member.id);
                   const total = memberTasks.reduce((s, t) => s + t.effort_hours, 0);
@@ -333,7 +333,7 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+              <div className="grid grid-cols-1 xl:grid-cols-3 gap-8 pdf-page-section">
                 <Card className="col-span-2 p-8">
                   <div className="flex items-center justify-between mb-8">
                     <h3 className="font-bold text-slate-800 flex items-center gap-2">
@@ -390,7 +390,7 @@ export default function App() {
                 </Card>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 pdf-page-section">
                 {members.map(member => (
                   <Card key={member.id} className="p-6">
                     <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">

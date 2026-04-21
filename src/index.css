@@ -46,3 +46,25 @@
 ::-webkit-scrollbar-thumb {
   @apply bg-slate-200 rounded-full hover:bg-slate-300 transition-colors;
 }
+
+/* PDF Export Logic */
+.pdf-page-section {
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+@media print {
+  #report-container {
+    width: 1200px !important;
+    min-width: 1200px !important;
+    padding: 20px !important;
+    background: white !important;
+  }
+
+  .bento-card {
+    break-inside: avoid;
+    page-break-inside: avoid;
+    border-color: #E2E8F0 !important;
+    box-shadow: none !important;
+  }
+}

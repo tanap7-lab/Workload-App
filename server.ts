@@ -25,19 +25,53 @@ async function startServer() {
     const browser = await chromium.launch({ headless: true });
     try {
       console.log('  - Opening new page...');
-      const page = await browser.newPage();
-      await page.setViewportSize({ width: 1280, height: 800 });
+      const context = await browser.newContext({
+        viewport: { width: 1200, height: 1200 }, // High height to capture long dashboard
+        deviceScaleFactor: 2 // High quality
+      });
+      const page = await context.newPage();
       
       console.log(`  - Navigating to: ${url}...`);
       await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
 
-      console.log('  - Injecting print styles...');
+      console.log('  - Injecting print styles and cleaning UI...');
       await page.addStyleTag({
         content: `
-          aside, header, #export-modal-root { display: none !important; }
-          main { padding: 0 !important; margin: 0 !important; }
-          #report-container { padding: 20px !important; }
-          body { background: white !important; }
+          /* Hide non-report elements */
+          header, aside, footer, #export-modal-root, [role="dialog"], .fixed, .absolute { 
+            display: none !important; 
+          }
+          
+          /* Force layout consistency */
+          body { 
+            background: white !important; 
+            overflow: visible !important;
+            margin: 0 !important;
+            padding: 0 !important;
+          }
+          
+          #report-container { 
+            width: 1200px !important; 
+            min-width: 1200px !important;
+            max-width: 1200px !important;
+            padding: 0px !important; 
+            margin: 0 auto !important;
+            box-shadow: none !important;
+            transform-origin: top left;
+          }
+
+          main { 
+            padding: 0 !important; 
+            margin: 0 !important; 
+            overflow: visible !important;
+          }
+
+          /* Ensure components dont split */
+          .pdf-page-section, .bento-card {
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+            margin-bottom: 20px !important;
+          }
         `
       });
 
@@ -49,6 +83,7 @@ async function startServer() {
         format: 'A4',
         landscape: true,
         printBackground: true,
+        scale: 0.8, // Scale down to fit 1200px cleanly on A4 landscape
         margin: { top: '10mm', right: '10mm', bottom: '10mm', left: '10mm' }
       });
 
