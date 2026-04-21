@@ -1,8 +1,9 @@
 import { create } from 'zustand';
-import { TeamMember, Week, Task } from '../types';
+import { TeamMember, Week, Task, Category } from '../types';
 
 interface TeamStore {
   members: TeamMember[];
+  categories: Category[];
   currentWeek: Week | null;
   tasks: Task[];
   loading: boolean;
@@ -10,16 +11,20 @@ interface TeamStore {
   
   fetchInitialData: (year: number, weekNumber: number) => Promise<void>;
   fetchWeekData: (year: number, weekNumber: number) => Promise<void>;
+  fetchCategories: () => Promise<void>;
   updateMember: (id: number, settings: Partial<TeamMember>) => Promise<void>;
   addMember: () => Promise<void>;
   deleteMember: (id: number) => Promise<void>;
   updateTask: (task: Partial<Task> & { week_id: number; member_id: number; priority: string }) => Promise<void>;
   reorderTasks: (weekId: number, memberId: number, newOrder: Task[]) => Promise<void>;
   carryOver: (fromWeekId: number, toWeekId: number) => Promise<void>;
+  saveCategory: (category: Partial<Category>) => Promise<void>;
+  deleteCategory: (id: number) => Promise<void>;
 }
 
 export const useTeamStore = create<TeamStore>((set, get) => ({
   members: [],
+  categories: [],
   currentWeek: null,
   tasks: [],
   loading: false,
@@ -28,12 +33,26 @@ export const useTeamStore = create<TeamStore>((set, get) => ({
   fetchInitialData: async (year, weekNumber) => {
     set({ loading: true });
     try {
+      // First fetch categories
+      const catRes = await fetch('/api/categories');
+      const categories = await catRes.json();
+
       const weekRes = await fetch(`/api/weeks/${year}/${weekNumber}`);
       const { week, tasks, members } = await weekRes.json();
       
-      set({ members, currentWeek: week, tasks, loading: false });
+      set({ categories, members, currentWeek: week, tasks, loading: false });
     } catch (err) {
       set({ error: 'Failed to fetch initial data', loading: false });
+    }
+  },
+
+  fetchCategories: async () => {
+    try {
+      const res = await fetch('/api/categories');
+      const categories = await res.json();
+      set({ categories });
+    } catch (err) {
+      set({ error: 'Failed to fetch categories' });
     }
   },
 
@@ -167,6 +186,28 @@ export const useTeamStore = create<TeamStore>((set, get) => ({
       }
     } catch (err) {
       set({ error: 'Failed to carry over tasks', loading: false });
+    }
+  },
+
+  saveCategory: async (categoryData) => {
+    try {
+      await fetch('/api/categories', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(categoryData),
+      });
+      await get().fetchCategories();
+    } catch (err) {
+      set({ error: 'Failed to save category' });
+    }
+  },
+
+  deleteCategory: async (id) => {
+    try {
+      await fetch(`/api/categories/${id}`, { method: 'DELETE' });
+      await get().fetchCategories();
+    } catch (err) {
+      set({ error: 'Failed to delete category' });
     }
   }
 }));

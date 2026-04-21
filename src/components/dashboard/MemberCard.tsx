@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { TeamMember, Task, PriorityLevel, PRIORITY_COLORS } from '../../types';
+import { createPortal } from 'react-dom';
+import { TeamMember, Task, Category, PriorityLevel, PRIORITY_COLORS } from '../../types';
 import { useTeamStore } from '../../hooks/useTeamStore';
 import { Card } from '../ui/Card';
 import { cn } from '../../utils/helpers';
-import { CheckCircle2, Clock, GripVertical } from 'lucide-react';
+import { GripVertical, AlertTriangle } from 'lucide-react';
 import { Reorder } from 'motion/react';
 
 interface MemberCardProps {
@@ -16,21 +17,20 @@ interface MemberCardProps {
 export const MemberCard = ({ member, tasks, weekId }: MemberCardProps) => {
   const updateTask = useTeamStore(state => state.updateTask);
   const reorderTasks = useTeamStore(state => state.reorderTasks);
-  
-  // Local state for the ordered priorities (P1-P4)
+  const categories = useTeamStore(state => state.categories);
+
   const [prioTasks, setPrioTasks] = useState<Task[]>([]);
 
   useEffect(() => {
-    // Filter and sort P1-P4 tasks based on their current priority
     const filtered = ['1', '2', '3', '4'].map(prio => {
       const task = tasks.find(t => t.priority === prio);
-      return task || { 
-        week_id: weekId, 
-        member_id: member.id, 
-        priority: prio, 
-        task_name: '', 
+      return task || {
+        week_id: weekId,
+        member_id: member.id,
+        priority: prio,
+        task_name: '',
         effort_hours: 0,
-        id: Math.random() // Temp ID for new tasks
+        id: Math.random()
       } as Task;
     });
     setPrioTasks(filtered);
@@ -38,20 +38,55 @@ export const MemberCard = ({ member, tasks, weekId }: MemberCardProps) => {
 
   const handleReorder = (newItems: Task[]) => {
     setPrioTasks(newItems);
-    
-    // Map the new positions back to their priority level '1' through '4'
     const updatedOrder = newItems.map((task, index) => ({
       ...task,
       priority: (index + 1).toString()
     }));
-
     reorderTasks(weekId, member.id, updatedOrder);
   };
+
+  const [activeDropdown, setActiveDropdown] = useState<number | string | null>(null);
+  const [dropdownRect, setDropdownRect] = useState<DOMRect | null>(null);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handleOutsideClick = () => setActiveDropdown(null);
+    if (activeDropdown) {
+      window.addEventListener('click', handleOutsideClick);
+    }
+    return () => window.removeEventListener('click', handleOutsideClick);
+  }, [activeDropdown]);
+
+  const handleCategorySelect = (task: Task, abbr: string | null) => {
+    updateTask({
+      ...task,
+      category_abbr: abbr || undefined
+    });
+    setActiveDropdown(null);
+  };
+
+  /** Resolve the bar color: category color → priority fallback */
+  const getBarColor = (task: Task, isALS: boolean): string => {
+    if (isALS) return PRIORITY_COLORS['ALS'];
+    if (task.category_abbr) {
+      const cat = categories.find(c => c.abbreviation === task.category_abbr);
+      if (cat) return cat.color;
+      // Category was deleted — signal with rose red
+      return '#FDA4AF';
+    }
+    return PRIORITY_COLORS[task.priority as PriorityLevel] ?? '#CBD5E1';
+  };
+
+  /** True if task has a category_abbr that no longer exists in the categories list */
+  const isCategoryMissing = (task: Task): boolean =>
+    !!task.category_abbr && !categories.find(c => c.abbreviation === task.category_abbr);
 
   const getALS = () => tasks.find(t => t.priority === 'ALS');
 
   const renderRow = (task: Task, priorityLabel: string, isALS = false) => {
-    const priority = task.priority as PriorityLevel;
+    const barColor = getBarColor(task, isALS);
+    const missing = !isALS && isCategoryMissing(task);
+    const isOpen = activeDropdown === task.id;
 
     return (
       <div className={cn(
@@ -63,11 +98,78 @@ export const MemberCard = ({ member, tasks, weekId }: MemberCardProps) => {
             <GripVertical size={14} />
           </div>
         )}
-        <div 
-          className={cn("w-1 h-6 rounded-full shrink-0", isALS && "ml-5")}
-          style={{ backgroundColor: PRIORITY_COLORS[isALS ? 'ALS' : priority] }}
+
+        {/* Category color bar */}
+        <div
+          className={cn("w-1 h-6 rounded-full shrink-0 transition-colors duration-300", isALS && "ml-5")}
+          style={{ backgroundColor: barColor }}
+          title={task.category_abbr || (isALS ? 'ALS' : 'Uncategorized')}
         />
-        
+
+        {/* Category badge / Dropdown */}
+        {!isALS && (
+          <div className="relative">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                const rect = e.currentTarget.getBoundingClientRect();
+                setDropdownRect(rect);
+                setActiveDropdown(isOpen ? null : task.id);
+              }}
+              className={cn(
+                "text-[9px] font-black uppercase tracking-wide px-1.5 py-0.5 rounded shrink-0 transition-all active:scale-95",
+                !task.category_abbr && "bg-slate-50 text-slate-300 hover:bg-slate-100 hover:text-slate-400 border border-slate-200 border-dashed"
+              )}
+              style={task.category_abbr ? { backgroundColor: `${barColor}20`, color: barColor } : {}}
+            >
+              {missing ? '⚠' : (task.category_abbr || 'SET')}
+            </button>
+
+            {/* Dropdown Menu - rendered via Portal to avoid clipping */}
+            {isOpen && dropdownRect && createPortal(
+              <div 
+                className="fixed bg-white rounded-xl shadow-2xl border border-slate-100 py-2 z-[9999] animate-in fade-in zoom-in-95 duration-200"
+                style={{ 
+                  top: dropdownRect.bottom + 8,
+                  left: dropdownRect.left,
+                  width: '192px' // w-48 equivalent
+                }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="px-3 py-1.5 mb-1 border-b border-slate-50">
+                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Select Category</span>
+                </div>
+                <div className="max-h-60 overflow-y-auto">
+                  {categories.map(cat => (
+                    <button
+                      key={cat.id}
+                      onClick={() => handleCategorySelect(task, cat.abbreviation)}
+                      className="w-full flex items-center gap-3 px-3 py-2 hover:bg-slate-50 transition-colors text-left group/item"
+                    >
+                      <div className="w-2 h-2 rounded-full" style={{ backgroundColor: cat.color }} />
+                      <div className="flex flex-col min-w-0">
+                        <span className="text-[11px] font-black text-slate-800 uppercase leading-none">{cat.abbreviation}</span>
+                        <span className="text-[9px] font-medium text-slate-400 truncate">{cat.fullName}</span>
+                      </div>
+                    </button>
+                  ))}
+                  <div className="border-t border-slate-50 mt-1 pt-1">
+                    <button
+                      onClick={() => handleCategorySelect(task, null)}
+                      className="w-full flex items-center gap-3 px-3 py-2 hover:bg-rose-50 text-rose-500 transition-colors text-left"
+                    >
+                      <div className="w-2 h-2 rounded-full bg-rose-200" />
+                      <span className="text-[10px] font-bold uppercase tracking-tight">Clear Category</span>
+                    </button>
+                  </div>
+                </div>
+              </div>,
+              document.body
+            )}
+          </div>
+        )}
+
+        {/* Task name input */}
         <input
           type="text"
           defaultValue={task.task_name || (isALS ? 'Admin/Learning/Social' : '')}
@@ -75,8 +177,9 @@ export const MemberCard = ({ member, tasks, weekId }: MemberCardProps) => {
           readOnly={isALS}
           disabled={isALS}
           className={cn(
-            "flex-1 bg-transparent border border-transparent hover:bg-slate-50 hover:border-slate-100 rounded px-2 py-1 text-[13px] font-medium text-slate-700 placeholder:text-slate-300 transition-all",
-            isALS && "text-slate-400 italic"
+            "flex-1 min-w-0 bg-transparent border border-transparent hover:bg-slate-50 hover:border-slate-100 rounded px-2 py-1 text-[13px] font-medium text-slate-700 placeholder:text-slate-300 transition-all",
+            isALS && "text-slate-400 italic",
+            missing && "text-rose-400"
           )}
           onBlur={(e) => {
             if (!isALS && e.target.value !== task.task_name) {
@@ -85,47 +188,54 @@ export const MemberCard = ({ member, tasks, weekId }: MemberCardProps) => {
                 member_id: member.id,
                 priority: priorityLabel,
                 task_name: e.target.value,
+                category_abbr: task.category_abbr,
                 effort_hours: task.effort_hours || 0
               });
             }
           }}
         />
 
-        <div className="flex items-center gap-1">
-          <input
-            type="number"
-            min="0"
-            max="40"
-            step="0.5"
-            defaultValue={task.effort_hours || 0}
-            className="w-12 bg-transparent border border-transparent hover:bg-slate-50 hover:border-slate-100 rounded px-1.5 py-1 text-xs font-bold text-[#FF4208] text-right [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none transition-all"
-            onBlur={(e) => {
-              const val = parseFloat(e.target.value);
-              if (!isNaN(val) && val !== task.effort_hours) {
-                updateTask({
-                  week_id: weekId,
-                  member_id: member.id,
-                  priority: priorityLabel,
-                  task_name: task.task_name || (isALS ? 'Admin/Learning/Social' : ''),
-                  effort_hours: val
-                });
-              }
-            }}
-          />
-        </div>
+        {/* Missing category warning icon */}
+        {missing && (
+          <span title="Category was deleted" className="text-rose-400 shrink-0">
+            <AlertTriangle size={12} />
+          </span>
+        )}
+
+        {/* Effort hours */}
+        <input
+          type="number"
+          min="0"
+          max="40"
+          step="0.5"
+          defaultValue={task.effort_hours || 0}
+          className="w-12 bg-transparent border border-transparent hover:bg-slate-50 hover:border-slate-100 rounded px-1.5 py-1 text-xs font-bold text-[#FF4208] text-right [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none transition-all"
+          onBlur={(e) => {
+            const val = parseFloat(e.target.value);
+            if (!isNaN(val) && val !== task.effort_hours) {
+              updateTask({
+                week_id: weekId,
+                member_id: member.id,
+                priority: priorityLabel,
+                task_name: task.task_name || (isALS ? 'Admin/Learning/Social' : ''),
+                category_abbr: task.category_abbr,
+                effort_hours: val
+              });
+            }
+          }}
+        />
       </div>
     );
   };
 
   const totalHours = tasks.reduce((sum, t) => sum + (t.effort_hours || 0), 0);
   const weeklyCapacity = member.weekly_hours || 40;
-  const isComplete = tasks.length >= 5 && totalHours >= (weeklyCapacity * 0.875); // Roughly 35/40
 
   return (
     <Card className="bento-card flex flex-col h-full overflow-hidden pdf-page-section">
       <div className="p-4 border-b border-slate-100 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <div 
+          <div
             className="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-xs shadow-inner shadow-black/10 overflow-hidden"
             style={{ backgroundColor: !member.avatar_url ? member.avatar_color : undefined }}
           >
@@ -137,6 +247,9 @@ export const MemberCard = ({ member, tasks, weekId }: MemberCardProps) => {
           </div>
           <h3 className="font-bold text-slate-800 text-sm tracking-tight">{member.name}</h3>
         </div>
+        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+          {totalHours}h / {weeklyCapacity}h
+        </span>
       </div>
 
       <div className="p-4 flex-1 space-y-0.5">
@@ -147,8 +260,12 @@ export const MemberCard = ({ member, tasks, weekId }: MemberCardProps) => {
             </Reorder.Item>
           ))}
         </Reorder.Group>
-        
-        {renderRow(getALS() || { week_id: weekId, member_id: member.id, priority: 'ALS', task_name: '', effort_hours: 0, id: 0 } as Task, 'ALS', true)}
+
+        {renderRow(
+          getALS() || { week_id: weekId, member_id: member.id, priority: 'ALS', task_name: '', effort_hours: 0, id: 0 } as Task,
+          'ALS',
+          true
+        )}
       </div>
     </Card>
   );

@@ -1,4 +1,3 @@
-import React from 'react';
 import { 
   Users, 
   LayoutDashboard, 
@@ -8,7 +7,7 @@ import {
   FileText,
   PlusCircle,
   TrendingUp,
-  Bell
+  Tag
 } from 'lucide-react';
 import { cn, getWeekNumber } from '../../utils/helpers';
 
@@ -21,7 +20,7 @@ export const Sidebar = ({ activeTab, setActiveTab }: SidebarProps) => {
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'analytics', label: 'Analytics', icon: TrendingUp },
-    { id: 'history', label: 'Archive', icon: History },
+    { id: 'categories', label: 'Categories', icon: Tag },
     { id: 'settings', label: 'Settings', icon: Settings },
   ];
 

@@ -21,8 +21,17 @@ export interface Task {
   member_id: number;
   priority: string;
   task_name: string;
+  category_abbr?: string;
   effort_hours: number;
   updated_at: string;
+}
+
+export interface Category {
+  id: number;
+  abbreviation: string;
+  fullName: string;
+  color: string;
+  priority_level: number;
 }
 
 export type PriorityLevel = '1' | '2' | '3' | '4' | 'ALS';

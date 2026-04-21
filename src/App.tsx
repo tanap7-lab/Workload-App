@@ -5,11 +5,15 @@ import { Header } from './components/layout/Header';
 import { MemberCard } from './components/dashboard/MemberCard';
 import { StackedBarChart } from './components/analytics/StackedBarChart';
 import { TrendLineChart } from './components/analytics/TrendLineChart';
+import { CategoryDonutChart } from './components/analytics/CategoryDonutChart';
+import { StrategicAlignmentRadar } from './components/analytics/StrategicAlignmentRadar';
+import { aggregateByCategory, calculateStrategicScore } from './utils/analytics';
 import { getWeekNumber, cn } from './utils/helpers';
 import { Card } from './components/ui/Card';
 import { Button } from './components/ui/Button';
 import { PRIORITY_COLORS, PriorityLevel } from './types';
 import { ExportModal } from './components/ExportModal';
+import { CategoryManagement } from './components/views/CategoryManagement';
 import * as XLSX from 'xlsx';
 import { 
   Users, 
@@ -28,10 +32,7 @@ import { motion, AnimatePresence } from 'motion/react';
 
 export default function App() {
   const { 
-    members, 
     currentWeek, 
-    tasks, 
-    loading, 
     fetchInitialData, 
     fetchWeekData,
     updateMember,
@@ -39,10 +40,15 @@ export default function App() {
     deleteMember,
     carryOver
   } = useTeamStore();
+  const members = useTeamStore(state => state.members);
+  const tasks = useTeamStore(state => state.tasks);
+  const categories = useTeamStore(state => state.categories);
+  const loading = useTeamStore(state => state.loading);
   
   const [activeTab, setActiveTab] = useState('dashboard');
   const [exporting, setExporting] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [highlightedCategory, setHighlightedCategory] = useState<string | null>(null);
   const reportRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -185,8 +191,9 @@ export default function App() {
   const totalEffort = tasks.reduce((sum, t) => sum + t.effort_hours, 0);
   const totalCapacity = members.reduce((sum, m) => sum + (m.weekly_hours || 40), 0);
   const teamFTE = (totalEffort / totalCapacity) * members.length || 0;
-  const avgFocus = totalEffort > 0 ? (tasks.filter(t => ['1', '2'].includes(t.priority)).reduce((sum, t) => sum + t.effort_hours, 0) / totalEffort) * 100 : 0;
+  const strategicScore = calculateStrategicScore(tasks, categories);
   const alsHours = tasks.filter(t => t.priority === 'ALS').reduce((sum, t) => sum + t.effort_hours, 0);
+  const categorySummary = aggregateByCategory(tasks, categories);
 
   if (!currentWeek) return <div className="h-screen flex items-center justify-center font-bold text-slate-400">Loading Team Effort Tracker...</div>;
 
@@ -230,10 +237,10 @@ export default function App() {
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="text-xl font-bold text-text-main">{avgFocus.toFixed(0)}%</span>
+                <span className="text-xl font-bold text-text-main">{strategicScore}%</span>
                 <span className="bg-emerald-100 text-emerald-700 text-[10px] font-bold px-1.5 py-0.5 rounded-md">Balanced</span>
               </div>
-              <p className="text-[11px] text-text-muted font-bold uppercase tracking-wider mt-0.5">High Focus Hours</p>
+              <p className="text-[11px] text-text-muted font-bold uppercase tracking-wider mt-0.5">Strategic Alignment</p>
             </div>
           </Card>
 
@@ -331,6 +338,13 @@ export default function App() {
                   <h2 className="text-2xl font-black text-slate-800 tracking-tight">Team Performance Analytics</h2>
                   <p className="text-sm text-slate-400 font-medium">Cross-team capacity and effort distribution</p>
                 </div>
+                <Button 
+                  onClick={handleExport}
+                  className="flex items-center gap-2 px-6 py-3 rounded-2xl bg-orange-500 text-white hover:bg-orange-600 transition-all shadow-xl shadow-orange-200 font-bold text-sm h-fit"
+                >
+                  <ArrowRight size={18} className="translate-y-px" />
+                  Export Analytics
+                </Button>
               </div>
 
               <div className="grid grid-cols-1 xl:grid-cols-3 gap-8 pdf-page-section">
@@ -341,52 +355,85 @@ export default function App() {
                       Individual Effort Distribution
                     </h3>
                   </div>
-                  <StackedBarChart members={members} tasks={tasks} />
+                  <StackedBarChart 
+                    members={members} 
+                    tasks={tasks} 
+                    categories={categories}
+                    highlightedCategory={highlightedCategory}
+                    onHoverCategory={setHighlightedCategory}
+                  />
                 </Card>
 
-                <Card className="p-8 bg-slate-900 text-white">
-                  <h3 className="font-bold mb-6 flex items-center gap-2">
-                    <Info size={18} className="text-orange-400" />
-                    Priority Insights
+                <Card className="p-8 bg-slate-900 text-white overflow-hidden relative">
+                  <div className="absolute -top-10 -right-10 w-40 h-40 bg-orange-500/10 rounded-full blur-3xl" />
+                  <h3 className="font-bold mb-6 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Info size={18} className="text-orange-400" />
+                      Category Insights
+                    </div>
+                    <span className="text-[10px] font-black text-orange-400/60 uppercase tracking-widest">W{currentWeek.week_number} Analysis</span>
                   </h3>
-                  <div className="space-y-6">
-                    {[
-                      { label: 'Priority 1 (Critical Path)', hours: 62, share: '41.3%', status: 'HEALTHY', color: 'bg-rose-500' },
-                      { label: 'Priority 2 (High Focus)', hours: 46, share: '30.7%', status: 'ON TARGET', color: 'bg-orange-500' },
-                      { label: 'Priority 3 (Medium)', hours: 18, share: '12.0%', status: 'DEFERRED', color: 'bg-amber-500' },
-                      { label: 'Priority 4 (Low)', hours: 10, share: '6.7%', status: 'MINIMAL', color: 'bg-emerald-500' },
-                      { label: 'ALS (Operational)', hours: 14, share: '9.3%', status: 'HIGH RISK', color: 'bg-orange-600', alert: true },
-                    ].map((row, i) => (
-                      <div key={i} className="flex items-center justify-between group cursor-default">
-                        <div className="flex items-center gap-4">
-                          <div className={cn("w-1.5 h-8 rounded-full", row.color)} />
-                          <div>
-                            <div className="text-xs font-bold text-white/90">{row.label}</div>
-                            <div className="text-[10px] text-white/40 font-bold uppercase">{row.share} Team Share</div>
+                  <div className="space-y-5">
+                    {categorySummary.length > 0 ? (
+                      categorySummary.map((row, i) => (
+                        <div 
+                          key={i} 
+                          className={cn(
+                            "flex items-center justify-between transition-all duration-300",
+                            highlightedCategory && highlightedCategory !== row.name ? "opacity-20 translate-x-2" : "opacity-100"
+                          )}
+                          onMouseEnter={() => setHighlightedCategory(row.name)}
+                          onMouseLeave={() => setHighlightedCategory(null)}
+                        >
+                          <div className="flex items-center gap-4">
+                            <div className="w-1.5 h-8 rounded-full" style={{ backgroundColor: row.color }} />
+                            <div>
+                              <div className="text-xs font-black text-white/90 uppercase tracking-tight">{row.name}</div>
+                              <div className="text-[9px] text-white/40 font-bold truncate max-w-[120px]">{row.fullName}</div>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-sm font-black">{row.value}h</div>
+                            <div className={cn(
+                              "text-[8px] font-black px-1.5 py-0.5 rounded-md inline-block mt-0.5",
+                              row.weight <= 2 ? "bg-emerald-500/20 text-emerald-400" : "bg-white/10 text-white/60"
+                            )}>
+                              {row.weight <= 2 ? 'STRATEGIC' : 'SUPPORT'}
+                            </div>
                           </div>
                         </div>
-                        <div className="text-right">
-                          <div className="text-sm font-black">{row.hours}h</div>
-                          <div className={cn(
-                            "text-[8px] font-black px-1.5 py-0.5 rounded-md inline-block mt-0.5",
-                            row.alert ? "bg-rose-500/20 text-rose-400" : "bg-white/10 text-white/60"
-                          )}>
-                            {row.status}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
+                      ))
+                    ) : (
+                      <div className="py-20 text-center text-white/20 font-black uppercase tracking-widest text-xs">No categorised data</div>
+                    )}
                   </div>
 
-                  <div className="mt-12 pt-12 border-t border-white/10 flex items-center justify-between">
+                  <div className="mt-10 pt-10 border-t border-white/10 flex items-center justify-between">
                     <div>
-                      <div className="text-[10px] font-black text-white/40 uppercase tracking-widest">Grand Total</div>
-                      <div className="text-2xl font-black">150 Hours</div>
+                      <div className="text-[10px] font-black text-white/40 uppercase tracking-widest">Strategic Score</div>
+                      <div className="text-3xl font-black text-orange-400">{strategicScore}%</div>
                     </div>
-                    <div className="w-12 h-12 bg-[#FF4208] rounded-full flex items-center justify-center shadow-lg shadow-orange-900/50">
+                    <div className="w-12 h-12 bg-[#FF4208] text-white rounded-2xl flex items-center justify-center shadow-2xl shadow-orange-900/50">
                       <CheckCircle2 size={24} />
                     </div>
                   </div>
+                </Card>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 pdf-page-section">
+                <Card className="p-8">
+                  <h3 className="font-bold text-slate-800 mb-2">Strategic Effort Distribution</h3>
+                  <p className="text-xs text-slate-400 font-medium mb-6 uppercase tracking-widest">Global Team Hours Split</p>
+                  <CategoryDonutChart 
+                    data={categorySummary} 
+                    highlightedCategory={highlightedCategory}
+                    onHoverCategory={setHighlightedCategory}
+                  />
+                </Card>
+                <Card className="p-8">
+                  <h3 className="font-bold text-slate-800 mb-2">Weight Distribution</h3>
+                  <p className="text-xs text-slate-400 font-medium mb-6 uppercase tracking-widest">Alignment by Analytics Weight (1-5)</p>
+                  <StrategicAlignmentRadar tasks={tasks} categories={categories} />
                 </Card>
               </div>
 
@@ -402,6 +449,17 @@ export default function App() {
               </div>
             </motion.div>
           )}
+          {activeTab === 'categories' && (
+            <motion.div 
+              key="categories"
+              initial={{ opacity: 0, scale: 0.98 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+            >
+              <CategoryManagement />
+            </motion.div>
+          )}
+
           {activeTab === 'settings' && (
             <motion.div 
               initial={{ opacity: 0, y: 20 }}
