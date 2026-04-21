@@ -85,7 +85,40 @@ async function startServer() {
       LEFT JOIN tasks t ON m.id = t.member_id AND t.week_id = ?
       WHERE m.is_active = 1 OR t.id IS NOT NULL
     `).all(week.id);
-    res.json({ week, tasks, members });
+    const availability = db.prepare('SELECT * FROM member_availability WHERE week_id = ?').all(week.id);
+    res.json({ week, tasks, members, availability });
+  });
+
+  app.post('/api/availability', (req, res) => {
+    const { week_id, member_id, available_hours, reason } = req.body;
+    db.prepare(`
+      INSERT INTO member_availability (week_id, member_id, available_hours, reason)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(week_id, member_id) DO UPDATE SET
+        available_hours = excluded.available_hours,
+        reason = excluded.reason
+    `).run(week_id, member_id, available_hours, reason);
+    res.json({ status: 'success' });
+  });
+
+  app.post('/api/weeks/:id/global-holiday', (req, res) => {
+    const { id } = req.params;
+    const members = db.prepare('SELECT id, weekly_hours FROM team_members WHERE is_active = 1').all() as any[];
+    
+    const transaction = db.transaction((membersList: any[]) => {
+      for (const m of membersList) {
+        db.prepare(`
+          INSERT INTO member_availability (week_id, member_id, available_hours, reason)
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT(week_id, member_id) DO UPDATE SET
+            available_hours = excluded.available_hours,
+            reason = excluded.reason
+        `).run(id, m.id, Math.max(0, m.weekly_hours - 8), 'Public Holiday');
+      }
+    });
+    
+    transaction(members);
+    res.json({ status: 'success' });
   });
 
   app.post('/api/tasks', (req, res) => {
@@ -212,11 +245,15 @@ async function startServer() {
   // ─── Analytics ────────────────────────────────────────────────────────────
   app.get('/api/analytics/trend/:memberId', (req, res) => {
     const history = db.prepare(`
-      SELECT w.week_number, w.year, t.priority, t.category_abbr, SUM(t.effort_hours) as effort
-      FROM weeks w JOIN tasks t ON w.id = t.week_id
+      SELECT w.week_number, w.year, t.priority, t.category_abbr, SUM(t.effort_hours) as effort,
+             COALESCE(a.available_hours, m.weekly_hours, 40) as capacity
+      FROM weeks w 
+      JOIN tasks t ON w.id = t.week_id
+      JOIN team_members m ON t.member_id = m.id
+      LEFT JOIN member_availability a ON w.id = a.week_id AND t.member_id = a.member_id
       WHERE t.member_id = ?
       GROUP BY w.year, w.week_number, t.priority, t.category_abbr
-      ORDER BY w.year DESC, w.week_number DESC LIMIT 40
+      ORDER BY w.year DESC, w.week_number DESC LIMIT 60
     `).all(req.params.memberId);
     res.json(history);
   });

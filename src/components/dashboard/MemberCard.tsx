@@ -4,9 +4,8 @@ import { TeamMember, Task, Category, PriorityLevel, PRIORITY_COLORS } from '../.
 import { useTeamStore } from '../../hooks/useTeamStore';
 import { Card } from '../ui/Card';
 import { cn } from '../../utils/helpers';
-import { GripVertical, AlertTriangle } from 'lucide-react';
+import { GripVertical, AlertTriangle, Clock, Calendar, ChevronDown } from 'lucide-react';
 import { Reorder } from 'motion/react';
-
 interface MemberCardProps {
   member: TeamMember;
   tasks: Task[];
@@ -14,10 +13,22 @@ interface MemberCardProps {
   key?: React.Key;
 }
 
+const AVAILABILITY_REASONS = [
+  'Regular Week',
+  'Public Holiday',
+  'Sick Leave',
+  'Personal Leave',
+  'Training / Workshop',
+  'Business Trip',
+  'Other'
+];
+
 export const MemberCard = ({ member, tasks, weekId }: MemberCardProps) => {
   const updateTask = useTeamStore(state => state.updateTask);
   const reorderTasks = useTeamStore(state => state.reorderTasks);
   const categories = useTeamStore(state => state.categories);
+  const availabilityOverrides = useTeamStore(state => state.availability);
+  const setAvailability = useTeamStore(state => state.setAvailability);
 
   const [prioTasks, setPrioTasks] = useState<Task[]>([]);
 
@@ -47,15 +58,19 @@ export const MemberCard = ({ member, tasks, weekId }: MemberCardProps) => {
 
   const [activeDropdown, setActiveDropdown] = useState<number | string | null>(null);
   const [dropdownRect, setDropdownRect] = useState<DOMRect | null>(null);
+  
+  const [isCapacityOpen, setIsCapacityOpen] = useState(false);
+  const [capacityRect, setCapacityRect] = useState<DOMRect | null>(null);
 
   // Close dropdown on outside click
   useEffect(() => {
-    const handleOutsideClick = () => setActiveDropdown(null);
-    if (activeDropdown) {
-      window.addEventListener('click', handleOutsideClick);
-    }
+    const handleOutsideClick = () => {
+      setActiveDropdown(null);
+      setIsCapacityOpen(false);
+    };
+    window.addEventListener('click', handleOutsideClick);
     return () => window.removeEventListener('click', handleOutsideClick);
-  }, [activeDropdown]);
+  }, []);
 
   const handleCategorySelect = (task: Task, abbr: string | null) => {
     updateTask({
@@ -228,8 +243,12 @@ export const MemberCard = ({ member, tasks, weekId }: MemberCardProps) => {
     );
   };
 
+  const override = availabilityOverrides.find(a => a.member_id === member.id && a.week_id === weekId);
+  const capacity = override ? override.available_hours : (member.weekly_hours || 40);
+  const isReduced = capacity < (member.weekly_hours || 40);
+
   const totalHours = tasks.reduce((sum, t) => sum + (t.effort_hours || 0), 0);
-  const weeklyCapacity = member.weekly_hours || 40;
+  const ftePercentage = capacity > 0 ? Math.round((totalHours / capacity) * 100) : 0;
 
   return (
     <Card className="bento-card flex flex-col h-full overflow-hidden pdf-page-section">
@@ -247,9 +266,99 @@ export const MemberCard = ({ member, tasks, weekId }: MemberCardProps) => {
           </div>
           <h3 className="font-bold text-slate-800 text-sm tracking-tight">{member.name}</h3>
         </div>
-        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-          {totalHours}h / {weeklyCapacity}h
-        </span>
+        <button 
+          onClick={(e) => {
+            e.stopPropagation();
+            const rect = e.currentTarget.getBoundingClientRect();
+            setCapacityRect(rect);
+            setIsCapacityOpen(!isCapacityOpen);
+          }}
+          className={cn(
+            "text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-lg transition-all",
+            isReduced ? "bg-orange-50 text-orange-600 hover:bg-orange-100" : "text-slate-400 hover:bg-slate-50"
+          )}
+          title={override?.reason || 'Standard Capacity'}
+        >
+          {totalHours}h / {capacity}h
+        </button>
+
+        {/* Capacity Adjustment Popover */}
+        {isCapacityOpen && capacityRect && createPortal(
+          <div 
+            className="fixed bg-white rounded-2xl shadow-2xl border border-slate-100 p-4 z-[9999] w-64 animate-in fade-in zoom-in-95 duration-200"
+            style={{ 
+              top: capacityRect.bottom + 8,
+              left: Math.max(10, capacityRect.left - 100),
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-2 mb-4 pb-2 border-b border-slate-50">
+              <Calendar size={14} className="text-orange-500" />
+              <span className="text-[10px] font-black text-slate-800 uppercase tracking-widest">Weekly Availability</span>
+            </div>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider block mb-1.5">Available Hours</label>
+                <div className="flex items-center gap-2">
+                  <input 
+                    type="number"
+                    value={capacity}
+                    onChange={(e) => setAvailability({
+                      week_id: weekId,
+                      member_id: member.id,
+                      available_hours: parseFloat(e.target.value) || 0,
+                      reason: override?.reason || 'Regular Week'
+                    })}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-700 focus:border-orange-500 outline-none"
+                  />
+                  <span className="text-[10px] font-bold text-slate-400">HRS</span>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider block mb-1.5">Change Reason</label>
+                <select 
+                  value={override?.reason || 'Regular Week'}
+                  onChange={(e) => setAvailability({
+                    week_id: weekId,
+                    member_id: member.id,
+                    available_hours: capacity,
+                    reason: e.target.value
+                  })}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-700 focus:border-orange-500 outline-none"
+                >
+                  {AVAILABILITY_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+                </select>
+              </div>
+
+              {isReduced && (
+                <div className="bg-orange-50 rounded-lg p-2.5 flex items-start gap-2">
+                  <AlertTriangle size={14} className="text-orange-500 shrink-0 mt-0.5" />
+                  <p className="text-[9px] font-bold text-orange-700 leading-tight">
+                    Reduced capacity affects FTE calculation for this week.
+                  </p>
+                </div>
+              )}
+
+              <button
+                className="w-full text-[10px] font-black uppercase text-slate-400 hover:text-slate-600 h-8 transition-colors"
+                onClick={() => {
+                  setAvailability({
+                    week_id: weekId,
+                    member_id: member.id,
+                    available_hours: member.weekly_hours || 40,
+                    reason: 'Regular Week'
+                  });
+                  setIsCapacityOpen(false);
+                }}
+              >
+                Reset to {member.weekly_hours || 40}H
+              </button>
+            </div>
+          </div>,
+          document.body
+        )}
       </div>
 
       <div className="p-4 flex-1 space-y-0.5">

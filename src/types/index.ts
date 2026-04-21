@@ -26,6 +26,14 @@ export interface Task {
   updated_at: string;
 }
 
+export interface AvailabilityOverride {
+  id?: number;
+  week_id: number;
+  member_id: number;
+  available_hours: number;
+  reason?: string;
+}
+
 export interface Category {
   id: number;
   abbreviation: string;

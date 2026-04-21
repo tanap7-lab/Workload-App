@@ -24,7 +24,8 @@ import {
   Info,
   PlusCircle,
   Trash2,
-  UserPlus
+  UserPlus,
+  Calendar
 } from 'lucide-react';
 import * as htmlToImage from 'html-to-image';
 import { jsPDF } from 'jspdf';
@@ -44,6 +45,8 @@ export default function App() {
   const tasks = useTeamStore(state => state.tasks);
   const categories = useTeamStore(state => state.categories);
   const loading = useTeamStore(state => state.loading);
+  const availability = useTeamStore(state => state.availability);
+  const setGlobalHoliday = useTeamStore(state => state.setGlobalHoliday);
   
   const [activeTab, setActiveTab] = useState('dashboard');
   const [exporting, setExporting] = useState(false);
@@ -189,8 +192,14 @@ export default function App() {
 
   // Analytics Calculations
   const totalEffort = tasks.reduce((sum, t) => sum + t.effort_hours, 0);
-  const totalCapacity = members.reduce((sum, m) => sum + (m.weekly_hours || 40), 0);
-  const teamFTE = (totalEffort / totalCapacity) * members.length || 0;
+  
+  // Calculate total capacity considering availability overrides
+  const totalCapacity = members.reduce((sum, m) => {
+    const override = availability.find(a => a.member_id === m.id && a.week_id === currentWeek.id);
+    return sum + (override ? override.available_hours : (m.weekly_hours || 40));
+  }, 0);
+
+  const teamFTE = totalCapacity > 0 ? (totalEffort / totalCapacity) * members.length : 0;
   const strategicScore = calculateStrategicScore(tasks, categories);
   const alsHours = tasks.filter(t => t.priority === 'ALS').reduce((sum, t) => sum + t.effort_hours, 0);
   const categorySummary = aggregateByCategory(tasks, categories);
@@ -258,6 +267,23 @@ export default function App() {
           </Card>
         </div>
 
+        {/* Global Actions Bar */}
+        <div className="flex justify-end gap-3 pdf-page-section">
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            className="text-[10px] font-black uppercase text-slate-400 hover:text-orange-500 gap-2 border border-dashed border-slate-200"
+            onClick={() => {
+              if (confirm('Apply -8 hours to everyone for a Public Holiday?')) {
+                setGlobalHoliday(currentWeek.id);
+              }
+            }}
+          >
+            <Calendar size={14} />
+            Set Global Holiday (-8h)
+          </Button>
+        </div>
+
         {/* Dashboard View */}
         <AnimatePresence mode="wait">
           {(activeTab === 'dashboard' || activeTab === 'print') && (
@@ -283,8 +309,9 @@ export default function App() {
                 {members.map(member => {
                   const memberTasks = tasks.filter(t => t.member_id === member.id);
                   const total = memberTasks.reduce((s, t) => s + t.effort_hours, 0);
-                  const capacity = member.weekly_hours || 40;
-                  const fte = Math.round((total / capacity) * 100);
+                  const override = availability.find(a => a.member_id === member.id && a.week_id === currentWeek.id);
+                  const capacity = override ? override.available_hours : (member.weekly_hours || 40);
+                  const fte = capacity > 0 ? Math.round((total / capacity) * 100) : 0;
                   
                   return (
                     <div key={member.id} className="flex flex-col gap-3 p-4 bento-card">

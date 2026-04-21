@@ -31,7 +31,7 @@ export const CategoryDonutChart = ({ data, highlightedCategory, onHoverCategory 
             outerRadius={110}
             paddingAngle={5}
             dataKey="value"
-            onMouseEnter={(d) => onHoverCategory(d.name)}
+            onMouseEnter={(d: any) => onHoverCategory(String(d.name))}
             onMouseLeave={() => onHoverCategory(null)}
           >
             {data.map((entry, index) => (

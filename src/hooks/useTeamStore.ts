@@ -1,11 +1,12 @@
 import { create } from 'zustand';
-import { TeamMember, Week, Task, Category } from '../types';
+import { TeamMember, Week, Task, Category, AvailabilityOverride } from '../types';
 
 interface TeamStore {
   members: TeamMember[];
   categories: Category[];
   currentWeek: Week | null;
   tasks: Task[];
+  availability: AvailabilityOverride[];
   loading: boolean;
   error: string | null;
   
@@ -20,6 +21,8 @@ interface TeamStore {
   carryOver: (fromWeekId: number, toWeekId: number) => Promise<void>;
   saveCategory: (category: Partial<Category>) => Promise<void>;
   deleteCategory: (id: number) => Promise<void>;
+  setAvailability: (data: AvailabilityOverride) => Promise<void>;
+  setGlobalHoliday: (weekId: number) => Promise<void>;
 }
 
 export const useTeamStore = create<TeamStore>((set, get) => ({
@@ -27,6 +30,7 @@ export const useTeamStore = create<TeamStore>((set, get) => ({
   categories: [],
   currentWeek: null,
   tasks: [],
+  availability: [],
   loading: false,
   error: null,
 
@@ -38,9 +42,9 @@ export const useTeamStore = create<TeamStore>((set, get) => ({
       const categories = await catRes.json();
 
       const weekRes = await fetch(`/api/weeks/${year}/${weekNumber}`);
-      const { week, tasks, members } = await weekRes.json();
+      const { week, tasks, members, availability } = await weekRes.json();
       
-      set({ categories, members, currentWeek: week, tasks, loading: false });
+      set({ categories, members, currentWeek: week, tasks, availability, loading: false });
     } catch (err) {
       set({ error: 'Failed to fetch initial data', loading: false });
     }
@@ -60,8 +64,8 @@ export const useTeamStore = create<TeamStore>((set, get) => ({
     set({ loading: true });
     try {
       const weekRes = await fetch(`/api/weeks/${year}/${weekNumber}`);
-      const { week, tasks, members } = await weekRes.json();
-      set({ members, currentWeek: week, tasks, loading: false });
+      const { week, tasks, members, availability } = await weekRes.json();
+      set({ members, currentWeek: week, tasks, availability, loading: false });
     } catch (err) {
       set({ error: 'Failed to fetch week data', loading: false });
     }
@@ -208,6 +212,41 @@ export const useTeamStore = create<TeamStore>((set, get) => ({
       await get().fetchCategories();
     } catch (err) {
       set({ error: 'Failed to delete category' });
+    }
+  },
+
+  setAvailability: async (data) => {
+    try {
+      await fetch('/api/availability', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      
+      const availability = [...get().availability];
+      const index = availability.findIndex(a => a.member_id === data.member_id);
+      if (index > -1) {
+        availability[index] = data;
+      } else {
+        availability.push(data);
+      }
+      set({ availability });
+    } catch (err) {
+      set({ error: 'Failed to set availability' });
+    }
+  },
+
+  setGlobalHoliday: async (weekId) => {
+    set({ loading: true });
+    try {
+      await fetch(`/api/weeks/${weekId}/global-holiday`, { method: 'POST' });
+      // Re-fetch everything for this week to ensure state is accurate
+      const week = get().currentWeek;
+      if (week) {
+        await get().fetchWeekData(week.year, week.week_number);
+      }
+    } catch (err) {
+      set({ error: 'Failed to set global holiday', loading: false });
     }
   }
 }));

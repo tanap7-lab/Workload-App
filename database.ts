@@ -56,6 +56,17 @@ export function initDb() {
       key TEXT PRIMARY KEY,
       value TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS member_availability (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      week_id INTEGER NOT NULL,
+      member_id INTEGER NOT NULL,
+      available_hours REAL NOT NULL,
+      reason TEXT,
+      FOREIGN KEY (week_id) REFERENCES weeks(id) ON DELETE CASCADE,
+      FOREIGN KEY (member_id) REFERENCES team_members(id) ON DELETE CASCADE,
+      UNIQUE(week_id, member_id)
+    );
   `);
 
   // Seed default categories if none exist
